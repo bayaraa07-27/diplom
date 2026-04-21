@@ -401,7 +401,6 @@ export default function Attendance() {
             />
             <canvas
               ref={canvasRef}
-              width={640} height={480}
               className="absolute inset-0 w-full h-full pointer-events-none"
             />
 
