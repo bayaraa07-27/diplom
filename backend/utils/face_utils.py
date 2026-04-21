@@ -1,175 +1,259 @@
 import face_recognition
 import numpy as np
 import base64
-import pickle
 import os
 from PIL import Image
 import io
+from database import get_db
+import logging
 
-ENCODINGS_DIR  = os.path.join(os.path.dirname(__file__), "..", "face_data")
-os.makedirs(ENCODINGS_DIR, exist_ok=True)
-ENCODINGS_FILE = os.path.join(ENCODINGS_DIR, "encodings.pkl")
+logger = logging.getLogger(__name__)
 
-def _load_encodings() -> dict:
-    if os.path.exists(ENCODINGS_FILE):
-        with open(ENCODINGS_FILE, "rb") as f:
-            return pickle.load(f)
-    return {}
+# ── Constants ─────────────────────────────────────────────────────────────────
+# Хэт өргөн tolerance → буруу хүнийг таниx.  0.38 = 62%+ ижилтэл шаардана.
+TOLERANCE_DEFAULT = 0.38
+# Best-vs-second gap: хамгийн ойр хоёр хүний зай наад зах нь энэ хэмжээ ялгаатай байх ёстой.
+# Жижиг gap → хоёр хүн хэт төстэй → бүртгэхгүй.
+MIN_GAP           = 0.06
+# Нэг хүний хэдэн encoding хадгалах вэ (өнцөг, гэрлийн ялгаанд тэсвэртэй байна)
+MAX_SAMPLES       = 5
 
-def _save_encodings(data: dict):
-    with open(ENCODINGS_FILE, "wb") as f:
-        pickle.dump(data, f)
+
+# ── DB helpers ───────────────────────────────────────────────────────────────
+
+def _load_encodings() -> dict[str, list[np.ndarray]]:
+    """
+    student_id → [enc1, enc2, ...] буцаана.
+    Хуучин нэг encoding-тай бичлэгтэй backward-compatible.
+    """
+    db = get_db()
+    result = {}
+    for doc in db.face_encodings.find():
+        sid = doc["student_id"]
+        if doc.get("encodings"):
+            result[sid] = [np.array(e) for e in doc["encodings"]]
+        elif doc.get("encoding"):
+            result[sid] = [np.array(doc["encoding"])]
+    return result
+
 
 def save_face_encoding(student_id: str, encoding: np.ndarray):
-    data = _load_encodings()
-    data[student_id] = encoding
-    _save_encodings(data)
+    """
+    Хамгийн ихдээ MAX_SAMPLES тусдаа encoding хадгална.
+    Дундажлах биш — тусдаа хадгалснаар өнцөг/гэрлийн ялгааг давж чадна.
+    """
+    db  = get_db()
+    doc = db.face_encodings.find_one({"student_id": student_id})
+    enc = (encoding / np.linalg.norm(encoding)).tolist()
+
+    if doc:
+        lst = doc.get("encodings") or ([doc["encoding"]] if doc.get("encoding") else [])
+        if len(lst) >= MAX_SAMPLES:
+            lst.pop(0)          # хамгийн хуучныг хасна
+        lst.append(enc)
+        db.face_encodings.update_one(
+            {"student_id": student_id},
+            {"$set": {"encodings": lst, "encoding": lst[-1], "sample_count": len(lst)}},
+        )
+    else:
+        db.face_encodings.update_one(
+            {"student_id": student_id},
+            {"$set": {"encodings": [enc], "encoding": enc, "sample_count": 1}},
+            upsert=True,
+        )
+    count = len(doc.get("encodings", [])) + 1 if doc else 1
+    logger.info(f"Saved encoding for {student_id} (total samples: {min(count, MAX_SAMPLES)})")
+
+
+def get_face_encoding(student_id: str) -> np.ndarray | None:
+    db  = get_db()
+    doc = db.face_encodings.find_one({"student_id": student_id})
+    if not doc:
+        return None
+    if doc.get("encodings"):
+        return np.array(doc["encodings"][-1])
+    return np.array(doc["encoding"]) if doc.get("encoding") else None
+
 
 def _b64_to_array(b64_str: str) -> np.ndarray:
     if "," in b64_str:
         b64_str = b64_str.split(",")[1]
-    img_bytes = base64.b64decode(b64_str)
-    img       = Image.open(io.BytesIO(img_bytes)).convert("RGB")
-    return np.array(img)
+    return np.array(Image.open(io.BytesIO(base64.b64decode(b64_str))).convert("RGB"))
 
-# ── Enrollment ───────────────────────────────────────────────────────────────
 
-def encode_face_from_base64(b64_str: str, check_liveness: bool = False, liveness_threshold: float = 0.7):
-    """Царай бүртгэх — liveness шалгалттай."""
+# ── Detection ─────────────────────────────────────────────────────────────────
+
+def _detect_with_best_model(img_array: np.ndarray, upsample: int = 1) -> list:
+    use_cnn = os.environ.get("FACE_USE_CNN", "false").lower() == "true"
+    if use_cnn:
+        locs = face_recognition.face_locations(img_array, model="cnn")
+        if locs:
+            return locs
+    return face_recognition.face_locations(
+        img_array, model="hog", number_of_times_to_upsample=upsample
+    )
+
+
+# ── Best-match logic ──────────────────────────────────────────────────────────
+
+def _best_match(unknown_enc: np.ndarray,
+                known: dict[str, list[np.ndarray]],
+                tolerance: float = TOLERANCE_DEFAULT) -> tuple[str | None, float]:
+    """
+    Бүртгэлтэй хүн бүрийн ХАМГИЙН ОЙРЫН encoding-тай харьцуулж
+    нийт хамгийн бага зайг олно.
+
+    Буцаах утга: (student_id | None, best_distance)
+
+    Хамгаалалт:
+    - best_dist > tolerance → таниxгүй
+    - best_dist-second_best_dist < MIN_GAP → хэт төстэй 2 хүн → таниxгүй
+    """
+    if not known:
+        return None, 1.0
+
+    per_person_best: list[tuple[float, str]] = []
+
+    for sid, encs in known.items():
+        distances = face_recognition.face_distance(encs, unknown_enc)
+        per_person_best.append((float(np.min(distances)), sid))
+
+    per_person_best.sort(key=lambda x: x[0])
+    best_dist, best_sid = per_person_best[0]
+
+    if best_dist > tolerance:
+        logger.debug(f"No match: best_dist={best_dist:.3f} > tolerance={tolerance}")
+        return None, best_dist
+
+    # Gap шалгалт: хоёрдугаар хамгийн ойр хүнтэй хэр ялгаатай вэ
+    if len(per_person_best) > 1:
+        second_dist = per_person_best[1][0]
+        gap = second_dist - best_dist
+        if gap < MIN_GAP:
+            logger.debug(
+                f"Ambiguous: best={best_dist:.3f}({best_sid}) "
+                f"second={second_dist:.3f} gap={gap:.3f} < {MIN_GAP}"
+            )
+            return None, best_dist
+
+    logger.debug(f"Match: {best_sid} dist={best_dist:.3f}")
+    return best_sid, best_dist
+
+
+# ── Enrollment ────────────────────────────────────────────────────────────────
+
+def encode_face_from_base64(b64_str: str, check_liveness: bool = False,
+                             liveness_threshold: float = 0.6):
     try:
         img_array = _b64_to_array(b64_str)
-        locations = face_recognition.face_locations(img_array, model="hog")
+
+        h, w = img_array.shape[:2]
+        if w < 640 or h < 480:
+            scale = max(640 / w, 480 / h)
+            img_array = np.array(Image.fromarray(img_array).resize((int(w*scale), int(h*scale))))
+
+        locations = _detect_with_best_model(img_array, upsample=2)
         if len(locations) == 0:
-            return None, "Зурагт царай илэрсэнгүй. Сайн гэрэлтэй газар дахин оролдоно уу."
+            return None, "Зурагт царай илэрсэнгүй. Зураг тод, дэлхий харагдаж байх ёстой."
         if len(locations) > 1:
             return None, "Зураганд олон царай илэрлээ. Зөвхөн нэг хүний зургийг ашиглана уу."
 
-        # Liveness шалгалт (enrollment-д optional)
         if check_liveness:
             from utils.liveness import check_liveness_from_b64
             top, right, bottom, left = locations[0]
-            liveness = check_liveness_from_b64(b64_str, face_location=(top, right, bottom, left), threshold=liveness_threshold)
+            liveness = check_liveness_from_b64(
+                b64_str, face_location=(left, top, right, bottom), threshold=liveness_threshold
+            )
             if not liveness.get("skipped") and not liveness["is_live"]:
-                return None, f"Бодит хүн биш байна. Камерт шууд харна уу. (Итгэлцэл: {liveness['confidence']*100:.0f}%)"
+                return None, f"Бодит хүн биш байна. (Итгэлцэл: {liveness['confidence']*100:.0f}%)"
 
-        encodings = face_recognition.face_encodings(img_array, locations)
+        # num_jitters=20: enrollment нэг удаа хийгддэг тул маш нарийвчлалтай encoding үүсгэнэ
+        encodings = face_recognition.face_encodings(img_array, locations, num_jitters=20)
         return encodings[0], None
     except Exception as e:
         return None, f"Зургийг боловсруулахад алдаа гарлаа: {str(e)}"
 
-# ── Single recognize ─────────────────────────────────────────────────────────
 
-def recognize_face_from_base64(b64_str: str, tolerance: float = 0.5,
-                                check_liveness: bool = True, liveness_threshold: float = 0.7):
+# ── Single recognize ──────────────────────────────────────────────────────────
+
+def recognize_face_from_base64(b64_str: str, tolerance: float = TOLERANCE_DEFAULT,
+                                check_liveness: bool = False, liveness_threshold: float = 0.6):
     try:
         img_array = _b64_to_array(b64_str)
-        locations = face_recognition.face_locations(img_array, model="hog")
+        locations = _detect_with_best_model(img_array)
         if not locations:
             return None, "Царай илэрсэнгүй"
 
-        unknown_encodings = face_recognition.face_encodings(img_array, locations)
+        unknown_encodings = face_recognition.face_encodings(img_array, locations, num_jitters=4)
         if not unknown_encodings:
             return None, "Царай шифрлэхэд алдаа гарлаа"
 
-        # Liveness шалгалт
         if check_liveness:
             from utils.liveness import check_liveness_from_b64
             top, right, bottom, left = locations[0]
-            liveness = check_liveness_from_b64(b64_str, face_location=(top, right, bottom, left), threshold=liveness_threshold)
+            liveness = check_liveness_from_b64(
+                b64_str, face_location=(left, top, right, bottom), threshold=liveness_threshold
+            )
             if not liveness.get("skipped") and not liveness["is_live"]:
-                return None, f"⚠️ Утасны зураг илэрлээ! Бодит хүн камерт харна уу. (Итгэлцэл: {liveness['confidence']*100:.0f}%)"
+                return None, f"⚠️ Бодит хүн биш. (Итгэлцэл: {liveness['confidence']*100:.0f}%)"
 
-        unknown_enc = unknown_encodings[0]
-        known       = _load_encodings()
+        known = _load_encodings()
         if not known:
             return None, "Бүртгэлтэй царай байхгүй байна"
 
-        student_ids = list(known.keys())
-        known_encs  = [known[sid] for sid in student_ids]
-        distances   = face_recognition.face_distance(known_encs, unknown_enc)
-        best_idx    = int(np.argmin(distances))
-        best_dist   = float(distances[best_idx])
-        if best_dist > tolerance:
+        sid, dist = _best_match(unknown_encodings[0], known, tolerance)
+        if sid is None:
             return None, None
-        return {"student_id": student_ids[best_idx], "confidence": round((1 - best_dist) * 100, 1)}, None
+        return {"student_id": sid, "confidence": round((1 - dist) * 100, 1)}, None
     except Exception as e:
         return None, f"Царай таних үед алдаа гарлаа: {str(e)}"
 
-# ── Multi-face recognize ─────────────────────────────────────────────────────
 
-def recognize_multiple_faces(b64_str: str, tolerance: float = 0.5,
-                              check_liveness: bool = True, liveness_threshold: float = 0.7):
-    """Нэг кадрт олон царай зэрэг таньж, liveness шалгана."""
+# ── Multi-face recognize ──────────────────────────────────────────────────────
+
+def recognize_multiple_faces(b64_str: str, tolerance: float = TOLERANCE_DEFAULT):
+    """Нэг кадрт олон царай зэрэг таниx."""
     try:
         img_array = _b64_to_array(b64_str)
-        small     = np.array(Image.fromarray(img_array).resize(
-            (img_array.shape[1] // 2, img_array.shape[0] // 2)
-        ))
-        locations = face_recognition.face_locations(small, model="hog")
+
+        # Full-size detection — ½ хэмжээнд bbox алдаа гардаг байсан
+        locations = _detect_with_best_model(img_array, upsample=1)
         if not locations:
             return [], None
 
-        unknown_encodings = face_recognition.face_encodings(small, locations)
+        # num_jitters=4: нэг фрэймийн encoding нарийвчлалыг сайжруулж, хурдыг хэвээр хадгална
+        unknown_encodings = face_recognition.face_encodings(
+            img_array, locations, num_jitters=4
+        )
+
         known = _load_encodings()
         if not known:
             return [], "Бүртгэлтэй царай байхгүй байна"
 
-        student_ids = list(known.keys())
-        known_encs  = [known[sid] for sid in student_ids]
-
-        # Бүх царайн liveness зэрэг шалгах
-        liveness_results = []
-        if check_liveness:
-            from utils.liveness import check_liveness_batch
-            # 2x scale буцаах
-            orig_locs = [(t*2, r*2, b*2, l*2) for t, r, b, l in locations]
-            liveness_results = check_liveness_batch(b64_str, orig_locs, threshold=liveness_threshold)
-
         results = []
-        for i, (enc, loc) in enumerate(zip(unknown_encodings, locations)):
+        for enc, loc in zip(unknown_encodings, locations):
             top, right, bottom, left = loc
-            orig_loc = [top*2, right*2, bottom*2, left*2]
+            orig_loc = [top, right, bottom, left]
 
-            # Liveness үр дүн
-            lv = liveness_results[i] if liveness_results else {"is_live": True, "confidence": 1.0}
-            is_live    = lv.get("is_live", True)
-            lv_score   = lv.get("confidence", 1.0)
-            lv_skipped = lv.get("skipped", False)
+            sid, dist = _best_match(enc, known, tolerance)
 
-            # Spoof илэрсэн
-            if check_liveness and not lv_skipped and not is_live:
+            if sid is not None:
+                results.append({
+                    "student_id": sid,
+                    "confidence": round((1 - dist) * 100, 1),
+                    "location":   orig_loc,
+                    "recognized": True,
+                    "spoof":      False,
+                    "liveness_score": 100,
+                })
+            else:
                 results.append({
                     "student_id": None,
                     "confidence": 0,
                     "location":   orig_loc,
                     "recognized": False,
-                    "spoof":      True,
-                    "liveness_score": lv_score,
-                })
-                continue
-
-            # Face recognition
-            distances = face_recognition.face_distance(known_encs, enc)
-            best_idx  = int(np.argmin(distances))
-            best_dist = float(distances[best_idx])
-
-            if best_dist <= tolerance:
-                results.append({
-                    "student_id":     student_ids[best_idx],
-                    "confidence":     round((1 - best_dist) * 100, 1),
-                    "location":       orig_loc,
-                    "recognized":     True,
-                    "spoof":          False,
-                    "liveness_score": round(lv_score * 100, 1),
-                })
-            else:
-                results.append({
-                    "student_id":     None,
-                    "confidence":     0,
-                    "location":       orig_loc,
-                    "recognized":     False,
-                    "spoof":          False,
-                    "liveness_score": round(lv_score * 100, 1),
+                    "spoof":      False,
+                    "liveness_score": 100,
                 })
 
         return results, None
