@@ -205,6 +205,7 @@ export default function Enroll() {
                   <Webcam
                     ref={webcamRef}
                     audio={false}
+                    mirrored={true}
                     screenshotFormat="image/jpeg"
                     videoConstraints={CONSTRAINTS}
                     className="w-full"
