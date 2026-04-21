@@ -71,15 +71,6 @@ export default function Enroll() {
     setBusy(true)
     setError('')
     try {
-      // Liveness шалгалт
-      if (mode === 'webcam') {
-        const lv = await api.post('/attendance/check-liveness', { image: imgSrc })
-        if (!lv.data.skipped && !lv.data.is_live) {
-          setError(`Бодит хүн биш байна — утасны зураг илэрлээ. Камерт шууд харна уу. (${Math.round(lv.data.confidence * 100)}%)`)
-          setBusy(false)
-          return
-        }
-      }
       await api.post(`/students/${id}/enroll-face`, { image: imgSrc })
       toast.success('Царай амжилттай бүртгэгдлээ!')
       setStep('done')
