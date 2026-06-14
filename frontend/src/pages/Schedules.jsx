@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { Clock, Plus, Pencil, Trash2, CalendarDays, BookOpen, MapPin, Users } from 'lucide-react'
 import api from '../utils/api'
 import toast from 'react-hot-toast'
+import Dropdown from '../components/Dropdown'
 
 const DAYS = [
   { value: 'Mon', label: 'Даваа' },
@@ -232,9 +234,10 @@ function ScheduleModal({ schedule, onClose, onSaved }) {
 
   const f = (k, v) => setForm(p => ({ ...p, [k]: v }))
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-      <div className="card w-full max-w-lg p-6 fade-in max-h-[90vh] overflow-y-auto">
+  return createPortal(
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-sm">
+      <div className="flex min-h-screen items-center justify-center p-4">
+      <div className="card w-full max-w-lg p-6 fade-in my-8">
         <h2 className="text-lg font-semibold text-white mb-5">
           {schedule ? 'Хуваарь засах' : 'Хуваарь нэмэх'}
         </h2>
@@ -293,11 +296,14 @@ function ScheduleModal({ schedule, onClose, onSaved }) {
               <input className="input" placeholder="жнь: Мэдээлэл зүй" value={form.department}
                 onChange={e => f('department', e.target.value)} required />
             </div>
-            <div>
-              <label className="label">Курс</label>
-              <select className="input" value={form.year} onChange={e => f('year', e.target.value)}>
-                {[1,2,3,4,5,6].map(y => <option key={y} value={y}>{y}-р курс</option>)}
-              </select>
+           <div>
+           <label className="label">Курс</label>
+           <Dropdown
+           value={form.year}
+           onChange={(val) => f('year', val)}
+           options={[1,2,3,4,5,6].map(y => ({ value: y, label: `${y}-р курс` }))}
+           placeholder="— Курс сонгох —"
+            />
             </div>
           </div>
 
@@ -332,12 +338,14 @@ function ScheduleModal({ schedule, onClose, onSaved }) {
           </div>
         </form>
       </div>
-    </div>
+      </div>
+    </div>,
+    document.body
   )
 }
 
 function ConfirmModal({ onConfirm, onCancel }) {
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
       <div className="card w-full max-w-sm p-6 fade-in text-center">
         <div className="w-12 h-12 rounded-full bg-red-500/15 flex items-center justify-center mx-auto mb-4">
@@ -349,6 +357,7 @@ function ConfirmModal({ onConfirm, onCancel }) {
           <button onClick={onConfirm} className="btn-danger    flex-1 justify-center">Устгах</button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

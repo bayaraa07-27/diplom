@@ -8,7 +8,7 @@ _db     = None
 def init_db():
     global _client, _db
 
-    uri = "mongodb+srv://bayarjavhlannatsgaa7_db_user:Javkhaa@diplom.e4wqqwu.mongodb.net/face_attendance"
+    uri = os.getenv("MONGO_URI", "mongodb://localhost:27017/face_attendance")
 
     try:
         _client = MongoClient(uri, serverSelectionTimeoutMS=5000)
@@ -21,6 +21,9 @@ def init_db():
     _db.users.create_index("email", unique=True)
     _db.students.create_index("student_id", unique=True)
     _db.attendance.create_index([("student_id", 1), ("date", 1)])
+    _db.attendance.create_index("date")
+    _db.attendance_edits.create_index([("date", 1), ("edited_at", -1)])
+    _db.students.create_index("schedule_ids", sparse=True)
     print("✅ MongoDB connected")
 
 def get_db():

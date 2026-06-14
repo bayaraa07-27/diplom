@@ -82,7 +82,9 @@ def update_schedule(schedule_id):
 @jwt_required()
 def delete_schedule(schedule_id):
     db = get_db()
-    db.schedules.delete_one({"_id": ObjectId(schedule_id)})
+    result = db.schedules.delete_one({"_id": ObjectId(schedule_id)})
+    if result.deleted_count == 0:
+        return jsonify({"error": "Хуваарь олдсонгүй"}), 404
     return jsonify({"message": "Амжилттай устгагдлаа"})
 
 # ── Өнөөдрийн хуваарь ───────────────────────────────────────────────────────
@@ -90,12 +92,13 @@ def delete_schedule(schedule_id):
 @schedules_bp.route("/today", methods=["GET"])
 @jwt_required()
 def today_schedules():
-    db       = get_db()
-    days_map = {0: "Mon", 1: "Tue", 2: "Wed", 3: "Thu", 4: "Fri", 5: "Sat", 6: "Sun"}
-    today    = days_map[datetime.datetime.utcnow().weekday()]
+    db        = get_db()
+    days_map  = {0: "Mon", 1: "Tue", 2: "Wed", 3: "Thu", 4: "Fri", 5: "Sat", 6: "Sun"}
+    now_local = datetime.datetime.now()
+    today     = days_map[now_local.weekday()]
     schedules = list(db.schedules.find({"day": today, "is_active": True}).sort("start_time", 1))
 
-    now_str  = datetime.datetime.utcnow().strftime("%H:%M")
+    now_str  = now_local.strftime("%H:%M")
     result   = []
     for s in schedules:
         s["id"] = str(s.pop("_id"))
@@ -123,21 +126,28 @@ def schedule_checkin(schedule_id):
     db   = get_db()
     data = request.get_json()
     sid  = data.get("student_id")
-    now  = datetime.datetime.utcnow()
+
+    if not sid:
+        return jsonify({"error": "student_id шаардлагатай"}), 400
+    if not db.students.find_one({"student_id": sid}):
+        return jsonify({"error": "Оюутан олдсонгүй"}), 404
+
+    now_local = datetime.datetime.now()
+    now_utc   = datetime.datetime.utcnow()
 
     schedule = db.schedules.find_one({"_id": ObjectId(schedule_id)})
     if not schedule:
         return jsonify({"error": "Хуваарь олдсонгүй"}), 404
 
-    today     = now.date().isoformat()
+    today     = now_local.date().isoformat()
     days_map  = {0: "Mon", 1: "Tue", 2: "Wed", 3: "Thu", 4: "Fri", 5: "Sat", 6: "Sun"}
-    today_day = days_map[now.weekday()]
+    today_day = days_map[now_local.weekday()]
 
     if schedule["day"] != today_day:
         return jsonify({"error": f"Өнөөдөр {schedule['subject']} хичээл байхгүй"}), 400
 
-    # Хоцорсон эсэх тооцох
-    now_str      = now.strftime("%H:%M")
+    # Хоцорсон эсэх тооцох (дотоодын цагаар)
+    now_str      = now_local.strftime("%H:%M")
     late_deadline = _add_minutes(schedule["start_time"], schedule.get("late_after_minutes", 15))
     is_late      = now_str > late_deadline
 
@@ -159,7 +169,7 @@ def schedule_checkin(schedule_id):
         "schedule_id": schedule_id,
         "subject":     schedule["subject"],
         "date":        today,
-        "check_in":    now,
+        "check_in":    now_utc,
         "check_out":   None,
         "status":      "present",
         "late":        is_late,
@@ -170,7 +180,7 @@ def schedule_checkin(schedule_id):
         "message":     "Ирц бүртгэгдлээ",
         "record_id":   str(result.inserted_id),
         "subject":     schedule["subject"],
-        "check_in":    now.isoformat(),
+        "check_in":    now_utc,
         "late":        is_late,
         "late_minutes": record["late_minutes"],
     }), 201

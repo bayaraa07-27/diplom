@@ -1,8 +1,9 @@
 FROM python:3.11-slim
 
+# InsightFace Cython-д шаардлагатай build tool + runtime сангууд
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential cmake libopenblas-dev liblapack-dev \
-    libx11-dev libgtk-3-dev libboost-python-dev wget \
+    build-essential cmake \
+    libgomp1 libglib2.0-0 libgl1 wget curl \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -12,16 +13,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 RUN mkdir -p face_data models
 
-# ── Liveness model татах ──────────────────────────────────────────
-RUN wget -q -O models/MiniFASNetV2.onnx \
-    "https://github.com/minivision-ai/Silent-Face-Anti-Spoofing/raw/master/resources/anti_spoof_models/2.7_80x80_MiniFASNetV2.onnx" \
-    && echo "✅ MiniFASNetV2 татагдлаа" \
-    || echo "⚠️ MiniFASNetV2 татахад алдаа — runtime-д дахин оролдоно"
-
-RUN wget -q -O models/MiniFASNetV1SE.onnx \
-    "https://github.com/minivision-ai/Silent-Face-Anti-Spoofing/raw/master/resources/anti_spoof_models/4_0_0_80x80_MiniFASNetV1SE.onnx" \
-    && echo "✅ MiniFASNetV1SE татагдлаа" \
-    || echo "⚠️ MiniFASNetV1SE татахад алдаа — runtime-д дахин оролдоно"
+# Liveness болон InsightFace моделиудыг урьдчилан татна
+COPY download_models.py /tmp/download_models.py
+RUN python3 /tmp/download_models.py || echo "Model download failed — will retry on startup"
 
 EXPOSE 5000
 CMD ["python", "app.py"]

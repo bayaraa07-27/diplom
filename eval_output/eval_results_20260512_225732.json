@@ -1,0 +1,44 @@
+{
+  "timestamp": "20260512_225732",
+  "dataset": "Olivetti/AT&T ORL Faces (sklearn)",
+  "config": {
+    "n_subjects": 40,
+    "enroll_per_person": 5,
+    "test_per_person": 5,
+    "threshold": 0.45,
+    "model": "buffalo_sc"
+  },
+  "confusion": {
+    "TP": 200,
+    "FP": 0,
+    "FN": 0,
+    "TN": 185
+  },
+  "recognition": {
+    "accuracy": 100.0,
+    "precision": 100.0,
+    "recall_TPR": 100.0,
+    "FPR": 0.0,
+    "FNR": 0.0,
+    "F1_score": 100.0,
+    "EER": 25.2
+  },
+  "anti_spoofing": {
+    "APCER": 0.0,
+    "BPCER": 0.0,
+    "ACER": 0.0
+  },
+  "latency_ms": {
+    "n": 200,
+    "mean": 0.35,
+    "median": 0.36,
+    "p95": 0.51,
+    "max": 1.21
+  },
+  "detection_stats": {
+    "total_images": 400,
+    "detected": 400,
+    "failed": 0,
+    "rate_pct": 100.0
+  }
+}

@@ -1,0 +1,8 @@
+no,person,condition,result,confidence,latency_ms,note
+1,Бат,frontal,TP,87.3,145,
+2,Бат,left_45,TP,82.1,138,
+3,Бат,right_45,FN,0,130,гэрэлтүүлэг муу
+4,Дорж,frontal,TP,91.0,142,
+5,spoof,phone_screen,TN,0,136,
+6,spoof,printed_photo,FP,65.2,140,хэвлэмэл алдагдсан
+7,spoof,replay_video,TN,0,139,
