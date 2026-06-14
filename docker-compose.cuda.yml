@@ -1,0 +1,26 @@
+# ══════════════════════════════════════════════════════════════════
+#  GPU override файл — CPU compose-тай нийлүүлэн ашиглана:
+#
+#    docker compose -f docker-compose.yml -f docker-compose.cuda.yml up --build
+#
+#  Шаардлага:
+#    1. NVIDIA driver 520+ суулгасан байх (Windows GPU driver)
+#    2. Docker Desktop 4.17+ with WSL2 backend
+#       Settings → Resources → WSL Integration идэвхтэй байх
+#    3. docker-compose.yml-д  FACE_USE_CNN: "true"  байх
+# ══════════════════════════════════════════════════════════════════
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.cuda          # CUDA Dockerfile ашиглах
+    deploy:
+      resources:
+        limits:
+          memory: 4G                       # GPU model илүү RAM шаардана
+        reservations:
+          memory: 1G
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu, compute, utility]
