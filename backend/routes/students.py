@@ -90,9 +90,27 @@ def update_student(student_id):
 @jwt_required()
 def delete_student(student_id):
     db = get_db()
-    db.students.delete_one({"student_id": student_id})
+    result = db.students.delete_one({"student_id": student_id})
+    if result.deleted_count == 0:
+        return jsonify({"error": "Оюутан олдсонгүй"}), 404
     db.attendance.delete_many({"student_id": student_id})
+    db.face_encodings.delete_one({"student_id": student_id})
     return jsonify({"message": "Амжилттай устгагдлаа"})
+
+
+@students_bp.route("/<student_id>/enroll-face", methods=["DELETE"])
+@jwt_required()
+def reset_face(student_id):
+    db = get_db()
+    student = db.students.find_one({"student_id": student_id})
+    if not student:
+        return jsonify({"error": "Оюутан олдсонгүй"}), 404
+    db.face_encodings.delete_one({"student_id": student_id})
+    db.students.update_one(
+        {"student_id": student_id},
+        {"$set": {"face_enrolled": False}, "$unset": {"enrolled_at": ""}}
+    )
+    return jsonify({"message": "Царайны бүртгэл устгагдлаа"})
 
 @students_bp.route("/<student_id>/enroll-face", methods=["POST"])
 @jwt_required()
@@ -121,8 +139,84 @@ def face_status(student_id):
     student = db.students.find_one({"student_id": student_id})
     if not student:
         return jsonify({"error": "Оюутан олдсонгүй"}), 404
-    enrolled_at = student.get("enrolled_at")
+    enrolled_at  = student.get("enrolled_at")
+    enc_doc      = db.face_encodings.find_one({"student_id": student_id})
+    sample_count = enc_doc.get("sample_count", 0) if enc_doc else 0
     return jsonify({
         "face_enrolled": student.get("face_enrolled", False),
         "enrolled_at":   enrolled_at.isoformat() if enrolled_at else None,
+        "sample_count":  sample_count,
+    })
+
+@students_bp.route("/<student_id>/schedules", methods=["GET"])
+@jwt_required()
+def get_student_schedules(student_id):
+    db      = get_db()
+    student = db.students.find_one({"student_id": student_id}, {"schedule_ids": 1})
+    if not student:
+        return jsonify({"error": "Оюутан олдсонгүй"}), 404
+    schedule_ids = student.get("schedule_ids", [])
+    if not schedule_ids:
+        return jsonify({"schedule_ids": [], "schedules": []})
+    oids = []
+    for sid in schedule_ids:
+        try:
+            oids.append(ObjectId(sid))
+        except Exception:
+            pass
+    schedules = list(db.schedules.find({"_id": {"$in": oids}}))
+    for s in schedules:
+        s["id"] = str(s.pop("_id"))
+    return jsonify({"schedule_ids": schedule_ids, "schedules": schedules})
+
+@students_bp.route("/<student_id>/schedules", methods=["PUT"])
+@jwt_required()
+def update_student_schedules(student_id):
+    db   = get_db()
+    data = request.get_json()
+    if "schedule_ids" not in data or not isinstance(data["schedule_ids"], list):
+        return jsonify({"error": "schedule_ids массив шаардлагатай"}), 400
+    student = db.students.find_one({"student_id": student_id}, {"_id": 1})
+    if not student:
+        return jsonify({"error": "Оюутан олдсонгүй"}), 404
+    valid_ids = []
+    for sid in data["schedule_ids"]:
+        try:
+            oid = ObjectId(sid)
+            if db.schedules.find_one({"_id": oid}, {"_id": 1}):
+                valid_ids.append(str(oid))
+        except Exception:
+            pass
+    db.students.update_one(
+        {"student_id": student_id},
+        {"$set": {"schedule_ids": valid_ids}}
+    )
+    return jsonify({"message": "Хичээлийн бүртгэл шинэчлэгдлээ", "schedule_ids": valid_ids})
+
+@students_bp.route("/by-schedule/<schedule_id>", methods=["GET"])
+@jwt_required()
+def students_by_schedule(schedule_id):
+    db = get_db()
+    try:
+        oid = ObjectId(schedule_id)
+    except Exception:
+        return jsonify({"error": "Буруу schedule_id формат"}), 400
+    schedule = db.schedules.find_one({"_id": oid})
+    if not schedule:
+        return jsonify({"error": "Хуваарь олдсонгүй"}), 404
+    enrolled = list(db.students.find({"schedule_ids": schedule_id}, {"face_encoding": 0}))
+    if enrolled:
+        return jsonify({
+            "students":        [serialize(s) for s in enrolled],
+            "total":           len(enrolled),
+            "enrollment_type": "explicit",
+        })
+    fallback = list(db.students.find(
+        {"department": schedule["department"], "year": schedule["year"]},
+        {"face_encoding": 0}
+    ))
+    return jsonify({
+        "students":        [serialize(s) for s in fallback],
+        "total":           len(fallback),
+        "enrollment_type": "implicit",
     })

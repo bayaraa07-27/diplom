@@ -1,0 +1,58 @@
+# ══════════════════════════════════════════════════════════════════
+#  CUDA + dlib GPU build
+#  Шаардлага:
+#    - NVIDIA driver 520+ (Windows-д driver суулгасан байх)
+#    - Docker Desktop 4.17+ (WSL2 backend)
+#    - docker-compose.yml-д FACE_USE_CNN: "true"
+#
+#  Build: docker compose -f docker-compose.yml -f docker-compose.cuda.yml up --build
+# ══════════════════════════════════════════════════════════════════
+FROM nvidia/cuda:11.8.0-cudnn8-devel-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV CUDA_HOME=/usr/local/cuda
+
+# ── Python 3.11 суулгах ──────────────────────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    software-properties-common ca-certificates gnupg \
+    && add-apt-repository ppa:deadsnakes/ppa \
+    && apt-get update && apt-get install -y --no-install-recommends \
+        python3.11 python3.11-dev python3.11-distutils python3-pip \
+        build-essential cmake git wget curl \
+        libopenblas-dev liblapack-dev \
+        libx11-dev libboost-python-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 \
+ && update-alternatives --install /usr/bin/python  python  /usr/bin/python3.11 1
+
+# pip шинэчлэх
+RUN python -m pip install --upgrade pip
+
+# ── dlib-г CUDA-тай build хийх ───────────────────────────────────
+# DLIB_USE_CUDA=1 env → setup.py нь CUDA-г идэвхжүүлнэ
+# cuDNN header: /usr/include/cudnn.h (cudnn8-devel image-д байна)
+RUN DLIB_USE_CUDA=1 pip install --no-cache-dir dlib
+
+# ── Бусад dependency (face_recognition нь dlib-г дахин суулгахгүй) ─
+WORKDIR /app
+COPY requirements.txt .
+# blinker 1.4 нь Ubuntu-д distutils-аар суугдсан байдаг → pip-ийн override-г блоклодог.
+# --ignore-installed-аар шинэ хувилбарыг давхар суулгана, дараа нь requirements-ийг хэвийн суулгана.
+RUN pip install --no-cache-dir --ignore-installed blinker \
+ && pip install --no-cache-dir -r requirements.txt
+
+# ── Аппликешн ────────────────────────────────────────────────────
+COPY . .
+RUN mkdir -p face_data models
+
+COPY download_models.py /tmp/download_models.py
+RUN python /tmp/download_models.py
+
+# CUDA дэмжлэг шалгах
+RUN python -c "import dlib; print('dlib CUDA:', dlib.DLIB_USE_CUDA)"
+
+EXPOSE 5000
+CMD ["python", "app.py"]

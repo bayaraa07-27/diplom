@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { ScanFace, Eye, EyeOff, LogIn } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -7,6 +7,7 @@ import toast from 'react-hot-toast'
 export default function Login() {
   const { login }        = useAuth()
   const navigate         = useNavigate()
+  const location         = useLocation()
   const [form, setForm]  = useState({ email: '', password: '' })
   const [show, setShow]  = useState(false)
   const [busy, setBusy]  = useState(false)
@@ -17,7 +18,8 @@ export default function Login() {
     try {
       await login(form.email, form.password)
       toast.success('Тавтай морил!')
-      navigate('/')
+      const from = location.state?.from?.pathname || '/'
+      navigate(from, { replace: true })
     } catch (err) {
       toast.error(err.response?.data?.error || 'Нэвтрэхэд алдаа гарлаа')
     } finally {

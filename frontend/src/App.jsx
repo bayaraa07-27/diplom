@@ -1,6 +1,7 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import { AuthProvider, useAuth } from './hooks/useAuth'
+import { AttendanceProvider } from './contexts/AttendanceContext'
 import Layout     from './components/Layout'
 import Login      from './pages/Login'
 import Dashboard  from './pages/Dashboard'
@@ -11,8 +12,14 @@ import Enroll     from './pages/Enroll'
 import Schedules  from './pages/Schedules'
 
 function PrivateRoute({ children }) {
-  const { user } = useAuth()
-  return user ? children : <Navigate to="/login" replace />
+  const { user, loading } = useAuth()
+  const location = useLocation()
+  if (loading) return (
+    <div className="min-h-screen flex items-center justify-center bg-[#0f1117]">
+      <div className="w-8 h-8 border-2 border-primary-500 border-t-transparent rounded-full animate-spin" />
+    </div>
+  )
+  return user ? children : <Navigate to="/login" state={{ from: location }} replace />
 }
 
 export default function App() {
@@ -29,7 +36,7 @@ export default function App() {
         />
         <Routes>
           <Route path="/login" element={<Login />} />
-          <Route path="/" element={<PrivateRoute><Layout /></PrivateRoute>}>
+          <Route path="/" element={<PrivateRoute><AttendanceProvider><Layout /></AttendanceProvider></PrivateRoute>}>
             <Route index              element={<Dashboard />} />
             <Route path="students"   element={<Students />} />
             <Route path="attendance" element={<Attendance />} />

@@ -1,0 +1,158 @@
+{
+  "timestamp": "20260512_222336",
+  "model": "buffalo_sc",
+  "threshold": 0.45,
+  "face_size_px": 160,
+  "results": [
+    {
+      "n_faces": 20,
+      "grid_size": "800x640",
+      "det_size": "800x800",
+      "detected": 20,
+      "detection_rate": 100.0,
+      "recognition_rate": 0.0,
+      "correct": 0,
+      "detection_ms": {
+        "mean": 172.9,
+        "median": 166.0,
+        "p95": 205.3
+      },
+      "recognition_ms": {
+        "mean": 0.1,
+        "median": 0.1,
+        "p95": 0.2
+      },
+      "total_ms": {
+        "mean": 173.1,
+        "median": 166.2,
+        "p95": 205.5
+      },
+      "fps": 5.78
+    },
+    {
+      "n_faces": 30,
+      "grid_size": "960x800",
+      "det_size": "960x960",
+      "detected": 29,
+      "detection_rate": 96.7,
+      "recognition_rate": 0.0,
+      "correct": 0,
+      "detection_ms": {
+        "mean": 209.5,
+        "median": 209.7,
+        "p95": 230.2
+      },
+      "recognition_ms": {
+        "mean": 0.2,
+        "median": 0.2,
+        "p95": 0.2
+      },
+      "total_ms": {
+        "mean": 209.7,
+        "median": 209.9,
+        "p95": 230.4
+      },
+      "fps": 4.77
+    },
+    {
+      "n_faces": 50,
+      "grid_size": "1280x1120",
+      "det_size": "1280x1280",
+      "detected": 45,
+      "detection_rate": 90.0,
+      "recognition_rate": 0.0,
+      "correct": 0,
+      "detection_ms": {
+        "mean": 317.9,
+        "median": 317.9,
+        "p95": 330.0
+      },
+      "recognition_ms": {
+        "mean": 0.3,
+        "median": 0.2,
+        "p95": 0.3
+      },
+      "total_ms": {
+        "mean": 318.2,
+        "median": 318.1,
+        "p95": 330.2
+      },
+      "fps": 3.14
+    },
+    {
+      "n_faces": 100,
+      "grid_size": "1600x1600",
+      "det_size": "1280x1280",
+      "detected": 75,
+      "detection_rate": 75.0,
+      "recognition_rate": 0.0,
+      "correct": 0,
+      "detection_ms": {
+        "mean": 556.1,
+        "median": 554.4,
+        "p95": 611.7
+      },
+      "recognition_ms": {
+        "mean": 0.4,
+        "median": 0.4,
+        "p95": 0.5
+      },
+      "total_ms": {
+        "mean": 556.5,
+        "median": 554.8,
+        "p95": 612.2
+      },
+      "fps": 1.8
+    },
+    {
+      "n_faces": 150,
+      "grid_size": "2080x1920",
+      "det_size": "1280x1280",
+      "detected": 126,
+      "detection_rate": 84.0,
+      "recognition_rate": 0.0,
+      "correct": 0,
+      "detection_ms": {
+        "mean": 904.3,
+        "median": 887.4,
+        "p95": 999.9
+      },
+      "recognition_ms": {
+        "mean": 0.6,
+        "median": 0.6,
+        "p95": 0.7
+      },
+      "total_ms": {
+        "mean": 904.9,
+        "median": 888.0,
+        "p95": 1000.6
+      },
+      "fps": 1.11
+    },
+    {
+      "n_faces": 200,
+      "grid_size": "2400x2240",
+      "det_size": "1280x1280",
+      "detected": 162,
+      "detection_rate": 81.0,
+      "recognition_rate": 0.0,
+      "correct": 0,
+      "detection_ms": {
+        "mean": 1164.7,
+        "median": 1160.8,
+        "p95": 1262.3
+      },
+      "recognition_ms": {
+        "mean": 0.9,
+        "median": 1.0,
+        "p95": 1.2
+      },
+      "total_ms": {
+        "mean": 1165.6,
+        "median": 1161.8,
+        "p95": 1263.1
+      },
+      "fps": 0.86
+    }
+  ]
+}

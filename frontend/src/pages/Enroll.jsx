@@ -17,19 +17,25 @@ export default function Enroll() {
   const webcamRef    = useRef(null)
   const fileInputRef = useRef(null)
 
-  const [student,  setStudent]  = useState(null)
-  const [mode,     setMode]     = useState('webcam')   // webcam | upload
-  const [step,     setStep]     = useState('capture')  // capture | preview | done
-  const [imgSrc,   setImgSrc]   = useState(null)
-  const [busy,     setBusy]     = useState(false)
-  const [error,    setError]    = useState('')
-  const [dragging, setDragging] = useState(false)
+  const [student,     setStudent]     = useState(null)
+  const [sampleCount, setSampleCount] = useState(0)
+  const [mode,        setMode]        = useState('webcam')   // webcam | upload
+  const [step,        setStep]        = useState('capture')  // capture | preview | done
+  const [imgSrc,      setImgSrc]      = useState(null)
+  const [busy,        setBusy]        = useState(false)
+  const [error,       setError]       = useState('')
+  const [dragging,    setDragging]    = useState(false)
 
-  useEffect(() => {
+  const loadStudent = () => {
     api.get(`/students/${id}`)
       .then(r => setStudent(r.data))
       .catch(() => navigate('/students'))
-  }, [id])
+    api.get(`/students/${id}/face-status`)
+      .then(r => setSampleCount(r.data.sample_count || 0))
+      .catch(() => {})
+  }
+
+  useEffect(() => { loadStudent() }, [id])
 
   // ── Webcam capture ───────────────────────────────────────────────
   const capture = useCallback(() => {
@@ -45,7 +51,7 @@ export default function Enroll() {
       return
     }
     if (file.size > 5 * 1024 * 1024) {
-      setError('Файлын хэмжээ 5MB-аас бихгүй байна')
+      setError('Файлын хэмжээ 5MB-аас хэтрэхгүй байна')
       return
     }
     const reader = new FileReader()
@@ -73,6 +79,9 @@ export default function Enroll() {
     try {
       await api.post(`/students/${id}/enroll-face`, { image: imgSrc })
       toast.success('Царай амжилттай бүртгэгдлээ!')
+      api.get(`/students/${id}/face-status`)
+        .then(r => setSampleCount(r.data.sample_count || 0))
+        .catch(() => {})
       setStep('done')
     } catch (err) {
       setError(err.response?.data?.error || 'Алдаа гарлаа')
@@ -99,6 +108,17 @@ export default function Enroll() {
             </p>
           )}
         </div>
+        {sampleCount > 0 && (
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 border border-border">
+            <span className="text-xs text-slate-400">Зураг:</span>
+            <div className="flex gap-1">
+              {[...Array(5)].map((_, i) => (
+                <span key={i} className={`w-2.5 h-2.5 rounded-full ${i < sampleCount ? 'bg-primary-400' : 'bg-white/10'}`} />
+              ))}
+            </div>
+            <span className="text-xs text-slate-400">{sampleCount}/5</span>
+          </div>
+        )}
       </div>
 
       {/* Steps */}

@@ -99,7 +99,7 @@ function TodayList() {
   const today = new Date().toISOString().split('T')[0]
 
   useEffect(() => {
-    api.get(`/attendance?date=${today}&limit=10`).then(r => setRecords(r.data.records))
+    api.get(`/attendance/?date=${today}&limit=10`).then(r => setRecords(r.data.records))
   }, [])
 
   if (!records.length) return null
